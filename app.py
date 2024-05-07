@@ -34,7 +34,8 @@ def get_playlist_info(playlist_id):
                     'artists': track['artists'],
                     'popularity': track['popularity'],
                     'duration': track['duration'],
-                    'label': track['label']
+                    'label': track['label'],
+                    'is_local': track['is_local'],
                 } for track in tracks
             ],
             'stats': stats,

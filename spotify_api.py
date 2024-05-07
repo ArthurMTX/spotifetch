@@ -31,21 +31,50 @@ def get_access_token():
 
 
 def fetch_tracks_page(url, headers, offset):
+    count = 0
     params = {'limit': 100, 'offset': offset}
     response = requests.get(url, headers=headers, params=params)
     if response.status_code != 200:
+        print(f'Error fetching tracks page. Response status code: {response.status_code}, Response: {response.text}')
         return []
+
     data = response.json()
-    tracks = [{
-        'name': track['track']['name'],
-        'artists': ', '.join(
-            [artist['name'] for artist in track['track']['artists'] if artist.get('name') is not None]),
-        'popularity': track['track']['popularity'],
-        'duration': convert_duration(track['track']['duration_ms']),
-        'duration_ms': track['track']['duration_ms'],
-        'album_id': track['track']['album']['id'],
-        'artist_ids': [artist['id'] for artist in track['track']['artists']],
-    } for track in data['items']]
+    tracks = []
+
+    for track_data in data['items']:
+        count += 1
+        track = track_data.get('track')
+        if track is None:
+            print(f'Track data is None: {track_data}')
+            continue
+
+        print(f'Loading track: {track["name"]}')
+
+        album = track.get('album')
+        artists = track.get('artists')
+        is_local = track.get('is_local', False)
+
+        if is_local:
+            album_id = 'LOCAL_ARTIST'
+            artist_names = 'LOCAL_ARTIST'
+            artist_ids = ['LOCAL_ARTIST']
+        else:
+            album_id = album.get('id', 'Unknown') if album else 'Unknown'
+            artist_names = ', '.join([artist.get('name', 'Unknown') for artist in artists if artist.get('name') is not None])
+            artist_ids = [artist.get('id', 'Unknown') for artist in artists if artist.get('id') is not None]
+
+        tracks.append({
+            'name': track.get('name', 'Unknown'),
+            'artists': artist_names,
+            'popularity': track.get('popularity', 0),
+            'duration': convert_duration(track.get('duration_ms', 0)),
+            'duration_ms': track.get('duration_ms', 0),
+            'album_id': album_id,
+            'artist_ids': artist_ids,
+            'is_local': is_local
+        })
+
+    print(f'Loaded {count} tracks on page {offset // 100 + 1}')
     return tracks
 
 
@@ -91,14 +120,21 @@ def get_all_tracks(playlist_id, access_token):
         del track['album_id']
 
     for track in tracks:
-        track['genres'] = [genre for artist_id in track['artist_ids'] for genre in artist_id_to_genres[artist_id]]
+        track['genres'] = [genre for artist_id in track['artist_ids'] for genre in artist_id_to_genres.get(artist_id, [])]
         del track['artist_ids']
 
     return tracks
 
 
 def fetch_album_labels(album_ids, headers):
-    params = {'ids': ','.join(album_ids)}
+    valid_album_ids = [album_id for album_id in album_ids if album_id != 'LOCAL_ARTIST']
+
+    if not valid_album_ids:
+        print(f'No valid album IDs to fetch labels for: {album_ids}')
+        return {}
+
+    print(f'Fetching album labels for album IDs: {valid_album_ids}')
+    params = {'ids': ','.join(valid_album_ids)}
     response = requests.get(ALBUMS_API_URL, headers=headers, params=params)
     if response.status_code != 200:
         print(f'Error fetching album labels. Response status code: {response.status_code}, Response: {response.text}')
@@ -111,7 +147,7 @@ def fetch_album_labels(album_ids, headers):
             print(f'No albums found in the response data: {data}')
             return {}
 
-        album_labels = {}
+        album_labels = {album_id: 'LOCAL_ARTIST' for album_id in album_ids if album_id == 'LOCAL_ARTIST'}
         for album in albums:
             try:
                 album_id = album['id']
