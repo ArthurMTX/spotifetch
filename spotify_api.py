@@ -38,7 +38,8 @@ def fetch_tracks_page(url, headers, offset):
     data = response.json()
     tracks = [{
         'name': track['track']['name'],
-        'artists': ', '.join([artist['name'] for artist in track['track']['artists']]),
+        'artists': ', '.join(
+            [artist['name'] for artist in track['track']['artists'] if artist.get('name') is not None]),
         'popularity': track['track']['popularity'],
         'duration': convert_duration(track['track']['duration_ms']),
         'duration_ms': track['track']['duration_ms'],
@@ -57,6 +58,7 @@ def get_all_tracks(playlist_id, access_token):
 
     response = requests.get(url, headers=headers, params=params)
     if response.status_code != 200:
+        print(f'Error fetching playlist tracks. Response: {response.text}')
         return []
     data = response.json()
     tracks.extend(fetch_tracks_page(url, headers, 0))
@@ -99,15 +101,60 @@ def fetch_album_labels(album_ids, headers):
     params = {'ids': ','.join(album_ids)}
     response = requests.get(ALBUMS_API_URL, headers=headers, params=params)
     if response.status_code != 200:
+        print(f'Error fetching album labels. Response status code: {response.status_code}, Response: {response.text}')
         return {}
-    data = response.json()
-    return {album['id']: album['label'] for album in data['albums']}
+
+    try:
+        data = response.json()
+        albums = data.get('albums', None)
+        if albums is None:
+            print(f'No albums found in the response data: {data}')
+            return {}
+
+        album_labels = {}
+        for album in albums:
+            try:
+                album_id = album['id']
+                album_name = album['name']
+                label = album.get('label', 'Unknown')
+                album_labels[album_id] = label
+                print(f'Album ID: {album_id}, Album Name: {album_name}, Label: {label}')
+            except KeyError as e:
+                print(f'KeyError in album: {album}, Error: {e}')
+
+        return album_labels
+    except Exception as e:
+        print(f'Error fetching album labels. Error: {e}')
+        return {}
 
 
 def fetch_artist_genres(artist_ids, headers):
     params = {'ids': ','.join(artist_ids)}
     response = requests.get(ARTISTS_API_URL, headers=headers, params=params)
     if response.status_code != 200:
+        print(f'Error fetching artist genres. Response status code: {response.status_code}, Response: {response.text}')
         return {}
-    data = response.json()
-    return {artist['id']: artist['genres'] for artist in data['artists']}
+
+    try:
+        data = response.json()
+        artists = data.get('artists', [])
+        if not artists:
+            print(f'No artists found in the response data: {data}')
+            return {}
+
+        artist_genres = {}
+        for artist in artists:
+            try:
+                artist_id = artist['id']
+                artist_name = artist['name']
+                genres = artist.get('genres', [])
+                artist_genres[artist_id] = genres
+                print(f'Artist ID: {artist_id}, Artist Name: {artist_name}, Genres: {genres}')
+            except KeyError as e:
+                print(f'KeyError in artist: {artist}, Error: {e}')
+
+        return artist_genres
+    except Exception as e:
+        print(f'Error fetching artist genres. Error: {e}')
+        return {}
+
