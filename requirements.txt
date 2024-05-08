@@ -2,3 +2,5 @@ requests~=2.31.0
 Flask~=3.0.3
 python-dotenv
 plotly
+dash
+dash-bootstrap-components

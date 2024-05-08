@@ -5,7 +5,7 @@ from os.path import join, dirname
 from dotenv import load_dotenv
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from data_processing import convert_duration
+from data_processing import calculate_stats, convert_duration
 
 dotenv_path = join(dirname(__file__), '.env')
 load_dotenv(dotenv_path)
@@ -31,24 +31,18 @@ def get_access_token():
 
 
 def fetch_tracks_page(url, headers, offset):
-    count = 0
     params = {'limit': 100, 'offset': offset}
     response = requests.get(url, headers=headers, params=params)
     if response.status_code != 200:
-        print(f'Error fetching tracks page. Response status code: {response.status_code}, Response: {response.text}')
         return []
 
     data = response.json()
     tracks = []
 
     for track_data in data['items']:
-        count += 1
         track = track_data.get('track')
         if track is None:
-            print(f'Track data is None: {track_data}')
             continue
-
-        print(f'Loading track: {track["name"]}')
 
         album = track.get('album')
         artists = track.get('artists')
@@ -74,7 +68,6 @@ def fetch_tracks_page(url, headers, offset):
             'is_local': is_local
         })
 
-    print(f'Loaded {count} tracks on page {offset // 100 + 1}')
     return tracks
 
 
@@ -87,7 +80,6 @@ def get_all_tracks(playlist_id, access_token):
 
     response = requests.get(url, headers=headers, params=params)
     if response.status_code != 200:
-        print(f'Error fetching playlist tracks. Response: {response.text}')
         return []
     data = response.json()
     tracks.extend(fetch_tracks_page(url, headers, 0))
@@ -130,67 +122,77 @@ def fetch_album_labels(album_ids, headers):
     valid_album_ids = [album_id for album_id in album_ids if album_id != 'LOCAL_ARTIST']
 
     if not valid_album_ids:
-        print(f'No valid album IDs to fetch labels for: {album_ids}')
         return {}
 
-    print(f'Fetching album labels for album IDs: {valid_album_ids}')
     params = {'ids': ','.join(valid_album_ids)}
     response = requests.get(ALBUMS_API_URL, headers=headers, params=params)
     if response.status_code != 200:
-        print(f'Error fetching album labels. Response status code: {response.status_code}, Response: {response.text}')
         return {}
 
-    try:
-        data = response.json()
-        albums = data.get('albums', None)
-        if albums is None:
-            print(f'No albums found in the response data: {data}')
-            return {}
-
-        album_labels = {album_id: 'LOCAL_ARTIST' for album_id in album_ids if album_id == 'LOCAL_ARTIST'}
-        for album in albums:
-            try:
-                album_id = album['id']
-                album_name = album['name']
-                label = album.get('label', 'Unknown')
-                album_labels[album_id] = label
-                print(f'Album ID: {album_id}, Album Name: {album_name}, Label: {label}')
-            except KeyError as e:
-                print(f'KeyError in album: {album}, Error: {e}')
-
-        return album_labels
-    except Exception as e:
-        print(f'Error fetching album labels. Error: {e}')
+    data = response.json()
+    albums = data.get('albums', None)
+    if albums is None:
         return {}
+
+    album_labels = {album_id: 'LOCAL_ARTIST' for album_id in album_ids if album_id == 'LOCAL_ARTIST'}
+    for album in albums:
+        album_id = album['id']
+        label = album.get('label', 'Unknown')
+        album_labels[album_id] = label
+
+    return album_labels
 
 
 def fetch_artist_genres(artist_ids, headers):
     params = {'ids': ','.join(artist_ids)}
     response = requests.get(ARTISTS_API_URL, headers=headers, params=params)
     if response.status_code != 200:
-        print(f'Error fetching artist genres. Response status code: {response.status_code}, Response: {response.text}')
         return {}
 
-    try:
-        data = response.json()
-        artists = data.get('artists', [])
-        if not artists:
-            print(f'No artists found in the response data: {data}')
-            return {}
-
-        artist_genres = {}
-        for artist in artists:
-            try:
-                artist_id = artist['id']
-                artist_name = artist['name']
-                genres = artist.get('genres', [])
-                artist_genres[artist_id] = genres
-                print(f'Artist ID: {artist_id}, Artist Name: {artist_name}, Genres: {genres}')
-            except KeyError as e:
-                print(f'KeyError in artist: {artist}, Error: {e}')
-
-        return artist_genres
-    except Exception as e:
-        print(f'Error fetching artist genres. Error: {e}')
+    data = response.json()
+    artists = data.get('artists', [])
+    if not artists:
         return {}
 
+    artist_genres = {}
+    for artist in artists:
+        artist_id = artist['id']
+        genres = artist.get('genres', [])
+        artist_genres[artist_id] = genres
+
+    return artist_genres
+
+
+def get_playlist_info(playlist_id):
+    access_token = get_access_token()
+    headers = {'Authorization': f'Bearer {access_token}'}
+    response = requests.get(f'{PLAYLIST_API_URL}{playlist_id}', headers=headers)
+
+    if response.status_code == 200:
+        playlist_data = response.json()
+        tracks = get_all_tracks(playlist_id, access_token)
+        stats = calculate_stats(tracks)
+        result = {
+            'name': playlist_data['name'],
+            'description': playlist_data['description'],
+            'followers': playlist_data['followers']['total'],
+            'url': playlist_data['external_urls']['spotify'],
+            'owner': playlist_data['owner']['display_name'],
+            'image': playlist_data['images'][0]['url'],
+            'tracks': [
+                {
+                    'name': track['name'],
+                    'artists': track['artists'],
+                    'popularity': track['popularity'],
+                    'duration': track['duration'],
+                    'label': track['label'],
+                    'genres': track['genres'],
+                    'is_local': track['is_local']
+                }
+                for track in tracks
+            ],
+            'stats': stats
+        }
+        return result
+    else:
+        return {}
