@@ -65,6 +65,8 @@ def fetch_tracks_page(url, headers, offset):
             'duration_ms': track.get('duration_ms', 0),
             'album_id': album_id,
             'artist_ids': artist_ids,
+            'album_cover': album.get('images')[0]['url'] if album and album.get('images') else '',
+            'album_name': album.get('name', 'Unknown') if album else 'Unknown',
             'is_local': is_local
         })
 
@@ -96,10 +98,13 @@ def get_all_tracks(playlist_id, access_token):
             tracks.extend(future.result())
 
     album_id_to_label = defaultdict(str)
+    album_id_to_name = defaultdict(str)
     album_ids = list({track['album_id'] for track in tracks})
     for i in range(0, len(album_ids), 20):
         batch_ids = album_ids[i:i + 20]
-        album_id_to_label.update(fetch_album_labels(batch_ids, headers))
+        album_labels, album_names = fetch_album_labels(batch_ids, headers)
+        album_id_to_label.update(album_labels)
+        album_id_to_name.update(album_names)
 
     artist_id_to_genres = defaultdict(list)
     artist_ids = list({artist_id for track in tracks for artist_id in track['artist_ids']})
@@ -109,10 +114,12 @@ def get_all_tracks(playlist_id, access_token):
 
     for track in tracks:
         track['label'] = album_id_to_label[track['album_id']]
+        track['album'] = album_id_to_name[track['album_id']]
         del track['album_id']
 
     for track in tracks:
-        track['genres'] = [genre for artist_id in track['artist_ids'] for genre in artist_id_to_genres.get(artist_id, [])]
+        track['genres'] = [genre for artist_id in track['artist_ids'] for genre in
+                           artist_id_to_genres.get(artist_id, [])]
         del track['artist_ids']
 
     return tracks
@@ -135,12 +142,15 @@ def fetch_album_labels(album_ids, headers):
         return {}
 
     album_labels = {album_id: 'LOCAL_ARTIST' for album_id in album_ids if album_id == 'LOCAL_ARTIST'}
+    album_names = {}
     for album in albums:
         album_id = album['id']
         label = album.get('label', 'Unknown')
+        name = album.get('name', 'Unknown')
         album_labels[album_id] = label
+        album_names[album_id] = name
 
-    return album_labels
+    return album_labels, album_names
 
 
 def fetch_artist_genres(artist_ids, headers):
@@ -163,6 +173,13 @@ def fetch_artist_genres(artist_ids, headers):
     return artist_genres
 
 
+def get_owner_image(owner_data):
+    images = owner_data.get('images', [])
+    if images:
+        return images[0]['url']
+    return ''
+
+
 def get_playlist_info(playlist_id):
     access_token = get_access_token()
     headers = {'Authorization': f'Bearer {access_token}'}
@@ -172,12 +189,16 @@ def get_playlist_info(playlist_id):
         playlist_data = response.json()
         tracks = get_all_tracks(playlist_id, access_token)
         stats = calculate_stats(tracks)
+
+        owner_image = get_owner_image(playlist_data['owner'])
+
         result = {
             'name': playlist_data['name'],
             'description': playlist_data['description'],
             'followers': playlist_data['followers']['total'],
             'url': playlist_data['external_urls']['spotify'],
             'owner': playlist_data['owner']['display_name'],
+            'owner_image': owner_image,
             'image': playlist_data['images'][0]['url'],
             'tracks': [
                 {
@@ -186,6 +207,8 @@ def get_playlist_info(playlist_id):
                     'popularity': track['popularity'],
                     'duration': track['duration'],
                     'label': track['label'],
+                    'album_name': track['album_name'],
+                    'album_cover': track['album_cover'],
                     'genres': track['genres'],
                     'is_local': track['is_local']
                 }
@@ -196,3 +219,4 @@ def get_playlist_info(playlist_id):
         return result
     else:
         return {}
+

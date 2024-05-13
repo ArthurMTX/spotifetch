@@ -1,0 +1,15 @@
+td[data-dash-column="album_cover"] {
+    width: 100px;
+    padding: 0;
+}
+
+td[data-dash-column="album_cover"] img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+}
+
+#track-list > div.dash-spreadsheet-container.dash-spreadsheet.dash-empty-01.dash-no-filter.dash-fill-width > div > div.dt-table-container__row.dt-table-container__row-1 > div.cell.cell-1-1.dash-fixed-content > table > tbody > tr:nth-child(2) > td.dash-cell.column-0 > div {
+    white-space: normal;
+    height: 100px;
+}
